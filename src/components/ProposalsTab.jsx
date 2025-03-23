@@ -30,7 +30,7 @@ async function getContractParameters() {
     else {
       // You might need to replace this with your contract's actual address
       const governanceAddress = localStorage.getItem('governanceAddress') ||
-                               '0x123456789...'; // Fallback address if needed
+                               '0xFB195C11B511e646A4516d1a29DDa46E7516C9A4'; // Using the address from constants.js
       
       const governanceAbi = [
         "function govParams() external view returns (uint256 votingDuration, uint256 quorum, uint256 timelockDelay, uint256 proposalCreationThreshold, uint256 proposalStake, uint256 defeatedRefundPercentage, uint256 canceledRefundPercentage, uint256 expiredRefundPercentage)"
@@ -64,17 +64,51 @@ async function getContractParameters() {
     
     console.log("Formatted contract parameters:", formattedParams);
     
-    // Get user balance
+    // Get user balance - improved to be more reliable
     const accounts = await window.ethereum.request({ method: 'eth_accounts' });
     let userBalance = "0";
     
     if (accounts && accounts[0]) {
-      let token = null;
-      if (window.contracts && window.contracts.token) {
-        token = window.contracts.token;
-        const balance = await token.balanceOf(accounts[0]);
-        userBalance = ethers.utils.formatEther(balance);
-        console.log("User balance from token contract:", userBalance);
+      try {
+        // First try to get from token contract in window.contracts
+        if (window.contracts && window.contracts.token) {
+          const token = window.contracts.token;
+          const balance = await token.balanceOf(accounts[0]);
+          userBalance = ethers.utils.formatEther(balance);
+          console.log("User balance from token contract:", userBalance);
+        } 
+        // If that fails, try to create token contract directly
+        else {
+          const tokenAddress = "0xA3448DD0BdeFc13dD7e5a59994f1f15D8cc18521"; // Using the address from constants.js
+          const tokenAbi = ["function balanceOf(address owner) view returns (uint256)"];
+          const tokenContract = new ethers.Contract(tokenAddress, tokenAbi, provider);
+          
+          const balance = await tokenContract.balanceOf(accounts[0]);
+          userBalance = ethers.utils.formatEther(balance);
+          console.log("User balance from directly created token contract:", userBalance);
+        }
+      } catch (balanceError) {
+        console.error("Error getting token balance:", balanceError);
+        
+        // As a last resort, try Etherscan API
+        try {
+          const tokenAddress = "0xA3448DD0BdeFc13dD7e5a59994f1f15D8cc18521"; // Use actual address
+          // You should replace this with an actual API key if needed
+          const etherscanApiKey = "YourEtherscanAPIKey"; 
+          const networkPrefix = "api-sepolia."; // Use appropriate network for Sepolia
+          
+          const url = `https://${networkPrefix}etherscan.io/api?module=account&action=tokenbalance&contractaddress=${tokenAddress}&address=${accounts[0]}&tag=latest&apikey=${etherscanApiKey}`;
+          
+          const response = await fetch(url);
+          const data = await response.json();
+          
+          if (data.status === "1") {
+            userBalance = ethers.utils.formatEther(data.result);
+            console.log("User balance from Etherscan API:", userBalance);
+          }
+        } catch (etherscanError) {
+          console.error("Error getting balance from Etherscan:", etherscanError);
+        }
       }
     }
     
@@ -109,7 +143,7 @@ const ProposalsTab = ({
   executeProposal, 
   claimRefund,
   loading,
-  // This is new - accept the user object with balance info
+  // This is now used properly - accept the user object with balance info
   user = { balance: "0" }
 }) => {
   const [proposalType, setProposalType] = useState('all');
@@ -261,11 +295,11 @@ const ProposalsTab = ({
 
   // Enhanced validation function to check all requirements
   const validateProposalSubmission = () => {
-    // Validate based on proposal type
-    if (!validateProposalInputs(newProposal)) {
-      setTransactionError('Please fill in all required fields for this proposal type.');
-      return false;
-    }
+  // Validate based on proposal type
+  if (!validateProposalInputs(newProposal)) {
+    setTransactionError('Please fill in all required fields for this proposal type.');
+    return false;
+  }
     
     // Validate token balance against threshold
     if (parseFloat(governanceMetrics.userBalance) < parseFloat(governanceMetrics.threshold)) {
