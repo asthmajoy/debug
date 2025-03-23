@@ -4,10 +4,12 @@ import { useWeb3 } from '../contexts/Web3Context';
 import { useAuth } from '../contexts/AuthContext';
 import { useDelegation } from '../hooks/useDelegation';
 import { useProposals } from '../hooks/useProposals';
-import useVoting from '../hooks/useVoting';
+import { useVoting } from '../hooks/useVoting';
 import { useDAOStats } from '../hooks/useDAOStats';
 import { formatAddress } from '../utils/formatters';
 import { PROPOSAL_STATES } from '../utils/constants';
+
+// Import components
 import SecuritySettingsTab from './SecuritySettingsTab';
 import RoleManagementTab from './RoleManagementTab';
 import TimelockSettingsTab from './TimelockSettingsTab';
@@ -17,6 +19,30 @@ import VoteTab from './VoteTab';
 import DelegationTab from './DelegationTab';
 import AnalyticsTab from './AnalyticsTab';
 import DashboardTab from './DashboardTab';
+
+// Helper function to safely handle BigNumber objects
+const safeBigNumberToString = (value) => {
+  if (value === null || value === undefined) return "0";
+  
+  // Check if it's a BigNumber object
+  if (value && typeof value === 'object' && value._isBigNumber) {
+    try {
+      return value.toString();
+    } catch (e) {
+      return "0";
+    }
+  }
+  
+  // If it's already a string or number, just return it as a string
+  return String(value);
+};
+
+// Helper function to safely convert to number
+const safeBigNumberToNumber = (value) => {
+  const strValue = safeBigNumberToString(value);
+  const numValue = parseFloat(strValue);
+  return isNaN(numValue) ? 0 : numValue;
+};
 
 const JustDAODashboard = () => {
   // State for active tab
@@ -39,12 +65,6 @@ const JustDAODashboard = () => {
   // Use the enhanced DAO stats hook
   const daoStats = useDAOStats();
   
-  // Enhanced address formatter for responsive UI
-  const formatAddressResponsive = (address, chars = 6) => {
-    if (!address) return '';
-    return `${address.substring(0, chars)}...${address.substring(address.length - 4)}`;
-  };
-  
   // Debug log for voting power calculation
   useEffect(() => {
     console.log("Voting power calculation data:", {
@@ -55,30 +75,6 @@ const JustDAODashboard = () => {
       delegatedToYou: delegation?.delegationInfo?.delegatedToYou || "0"
     });
   }, [user, account, delegation?.delegationInfo]);
-  
-  // Helper function to safely handle BigNumber objects
-  const safeBigNumberToString = (value) => {
-    if (value === null || value === undefined) return "0";
-    
-    // Check if it's a BigNumber object
-    if (value && typeof value === 'object' && value._isBigNumber) {
-      try {
-        return value.toString();
-      } catch (e) {
-        return "0";
-      }
-    }
-    
-    // If it's already a string or number, just return it as a string
-    return String(value);
-  };
-  
-  // Helper function to safely convert to number
-  const safeBigNumberToNumber = (value) => {
-    const strValue = safeBigNumberToString(value);
-    const numValue = parseFloat(strValue);
-    return isNaN(numValue) ? 0 : numValue;
-  };
   
   // Format numbers to be more readable
   const formatNumber = (value, decimals = 2) => {
@@ -129,33 +125,6 @@ const JustDAODashboard = () => {
         return <SecuritySettingsTab contracts={contracts} />;
     }
   };
-  
-  // Helper function to properly detect self-delegation
-  const isSelfDelegated = (userAddress, delegateAddress) => {
-    if (!userAddress || !delegateAddress) return true; // Default to self-delegated if addresses aren't available
-    
-    // Normalize addresses for comparison
-    const normalizedUserAddr = userAddress.toLowerCase();
-    const normalizedDelegateAddr = delegateAddress.toLowerCase();
-    
-    // Check if delegate is self or zero address
-    return normalizedUserAddr === normalizedDelegateAddr || 
-           delegateAddress === '0x0000000000000000000000000000000000000000';
-  };
-  
-  // Calculate voting power based on delegation status
-  const calculateVotingPower = () => {
-    const delegationInfo = delegation?.delegationInfo || {};
-    const balance = parseFloat(safeBigNumberToString(user.balance) || "0");
-    const delegatedToYou = parseFloat(safeBigNumberToString(delegationInfo.delegatedToYou) || "0");
-    return formatToFiveDecimals(balance + delegatedToYou);
-  };
-  
-  // Check if user is self-delegated
-  const checkSelfDelegated = () => {
-    const userDelegate = user?.delegate || ethers.constants.AddressZero;
-    return isSelfDelegated(account, userDelegate);
-  };
 
   // Prepare safe stats object with all BigNumbers converted to standard formats
   const safeStats = {
@@ -177,33 +146,22 @@ const JustDAODashboard = () => {
     <div className="flex flex-col min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap justify-between items-center">
-          <div className="flex items-center mb-2 md:mb-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+          <div className="flex items-center">
             <h1 className="text-2xl font-bold text-indigo-600">JustDAO</h1>
           </div>
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-4">
             {isConnected ? (
-              <div className="text-sm text-gray-700 mr-2">
-                <div className="flex flex-wrap items-center">
-                  <span className="hidden sm:inline mr-2">{formatAddress(account)}</span>
-                  <span className="sm:hidden mr-2">{formatAddressResponsive(account, 4)}</span>
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  {/* On small screens, show compact format */}
-                  <span className="hidden sm:inline">{formatToFiveDecimals(user.balance)} JUST</span>
-                  <span className="sm:hidden">{parseFloat(formatToFiveDecimals(user.balance)).toFixed(2)} JUST</span>
-                  <span className="mx-1">|</span>
-                  <span className="whitespace-nowrap">
-                    <span className="hidden sm:inline">
-                      {checkSelfDelegated() ? 
-                        calculateVotingPower() : "0.00000"} 
-                    </span>
-                    <span className="sm:hidden">
-                      {checkSelfDelegated() ? 
-                        parseFloat(calculateVotingPower()).toFixed(2) : "0.00"} 
-                    </span>
-                    <span className="hidden xs:inline"> Voting Power</span>
-                    <span className="xs:hidden"> VP</span>
+              <div className="text-sm text-gray-700">
+                <div>{formatAddress(account)}</div>
+                <div className="flex gap-2">
+                  <span>{formatToFiveDecimals(user.balance)} JUST</span>
+                  <span>|</span>
+                  <span>
+                    {formatToFiveDecimals(user.delegate && user.delegate.toLowerCase() !== account.toLowerCase() 
+                      ? "0" 
+                      : (parseFloat(safeBigNumberToString(user.balance)) + 
+                         parseFloat(safeBigNumberToString(delegation?.delegationInfo?.delegatedToYou) || "0")).toString())} Voting Power
                   </span>
                 </div>
               </div>
@@ -212,19 +170,17 @@ const JustDAODashboard = () => {
             )}
             {isConnected ? (
               <button 
-                className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 sm:px-4 sm:py-2 text-sm rounded-md whitespace-nowrap"
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md"
                 onClick={disconnectWallet}
               >
-                <span className="hidden sm:inline">Disconnect</span>
-                <span className="sm:hidden">Disc.</span>
+                Disconnect
               </button>
             ) : (
               <button 
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 sm:px-4 sm:py-2 text-sm rounded-md whitespace-nowrap"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md"
                 onClick={connectWallet}
               >
-                <span className="hidden sm:inline">Connect Wallet</span>
-                <span className="sm:hidden">Connect</span>
+                Connect Wallet
               </button>
             )}
           </div>
@@ -299,7 +255,7 @@ const JustDAODashboard = () => {
             user={{
               ...user,
               balance: formatToFiveDecimals(user.balance),
-              votingPower: checkSelfDelegated() ? calculateVotingPower() : "0.00000"
+              votingPower: formatToFiveDecimals(user.votingPower)
             }}
             stats={safeStats} // Using our safely prepared stats object
             loading={daoStats.isLoading}
@@ -337,6 +293,10 @@ const JustDAODashboard = () => {
             executeProposal={proposalsHook.executeProposal}
             claimRefund={proposalsHook.claimRefund}
             loading={proposalsHook.loading}
+            user={{
+              ...user,
+              balance: formatToFiveDecimals(user.balance)
+            }}
           />
         )}
         {activeTab === 'vote' && (
@@ -363,7 +323,7 @@ const JustDAODashboard = () => {
             user={{
               ...user,
               balance: formatToFiveDecimals(user.balance),
-              votingPower: checkSelfDelegated() ? calculateVotingPower() : "0.00000"
+              votingPower: formatToFiveDecimals(user.votingPower)
             }}
             delegation={delegation}
           />

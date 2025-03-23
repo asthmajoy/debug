@@ -1,139 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ethers } from 'ethers';
 import { PROPOSAL_STATES, PROPOSAL_TYPES } from '../utils/constants';
 import { formatRelativeTime, formatBigNumber, formatAddress, formatTime } from '../utils/formatters';
 import Loader from './Loader';
-import { ChevronDown, ChevronUp, Copy, AlertTriangle, RefreshCw } from 'lucide-react';
-
-/**
- * Add this function at the top of your file - direct copy from updateGovernance.js to get parameters
- */
-async function getContractParameters() {
-  try {
-    // Access Web3 provider
-    if (!window.ethereum) {
-      console.error("No Web3 provider detected");
-      return null;
-    }
-    
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    
-    // Get governance contract - try multiple approaches
-    let governance = null;
-    
-    // Try to get from window.contracts first (your app's global state)
-    if (window.contracts && window.contracts.governance) {
-      governance = window.contracts.governance;
-      console.log("Using window.contracts.governance");
-    } 
-    // If that fails, try to find it by address (you might need to update this address)
-    else {
-      // You might need to replace this with your contract's actual address
-      const governanceAddress = localStorage.getItem('governanceAddress') ||
-                               '0xFB195C11B511e646A4516d1a29DDa46E7516C9A4'; // Using the address from constants.js
-      
-      const governanceAbi = [
-        "function govParams() external view returns (uint256 votingDuration, uint256 quorum, uint256 timelockDelay, uint256 proposalCreationThreshold, uint256 proposalStake, uint256 defeatedRefundPercentage, uint256 canceledRefundPercentage, uint256 expiredRefundPercentage)"
-      ];
-      
-      governance = new ethers.Contract(governanceAddress, governanceAbi, provider);
-      console.log("Created governance contract instance directly");
-    }
-    
-    if (!governance) {
-      console.error("Could not get governance contract");
-      return null;
-    }
-    
-    // Get governance parameters directly from contract
-    console.log("Calling govParams() on contract...");
-    const params = await governance.govParams();
-    console.log("Raw govParams result:", params);
-    
-    // Format values 
-    const formattedParams = {
-      votingDuration: parseInt(params.votingDuration.toString()),
-      quorum: ethers.utils.formatEther(params.quorum),
-      timelockDelay: parseInt(params.timelockDelay.toString()),
-      proposalCreationThreshold: ethers.utils.formatEther(params.proposalCreationThreshold),
-      proposalStake: ethers.utils.formatEther(params.proposalStake),
-      defeatedRefundPercentage: parseInt(params.defeatedRefundPercentage.toString()),
-      canceledRefundPercentage: parseInt(params.canceledRefundPercentage.toString()),
-      expiredRefundPercentage: parseInt(params.expiredRefundPercentage.toString())
-    };
-    
-    console.log("Formatted contract parameters:", formattedParams);
-    
-    // Get user balance - improved to be more reliable
-    const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-    let userBalance = "0";
-    
-    if (accounts && accounts[0]) {
-      try {
-        // First try to get from token contract in window.contracts
-        if (window.contracts && window.contracts.token) {
-          const token = window.contracts.token;
-          const balance = await token.balanceOf(accounts[0]);
-          userBalance = ethers.utils.formatEther(balance);
-          console.log("User balance from token contract:", userBalance);
-        } 
-        // If that fails, try to create token contract directly
-        else {
-          const tokenAddress = "0xA3448DD0BdeFc13dD7e5a59994f1f15D8cc18521"; // Using the address from constants.js
-          const tokenAbi = ["function balanceOf(address owner) view returns (uint256)"];
-          const tokenContract = new ethers.Contract(tokenAddress, tokenAbi, provider);
-          
-          const balance = await tokenContract.balanceOf(accounts[0]);
-          userBalance = ethers.utils.formatEther(balance);
-          console.log("User balance from directly created token contract:", userBalance);
-        }
-      } catch (balanceError) {
-        console.error("Error getting token balance:", balanceError);
-        
-        // As a last resort, try Etherscan API
-        try {
-          const tokenAddress = "0xA3448DD0BdeFc13dD7e5a59994f1f15D8cc18521"; // Use actual address
-          // You should replace this with an actual API key if needed
-          const etherscanApiKey = "YourEtherscanAPIKey"; 
-          const networkPrefix = "api-sepolia."; // Use appropriate network for Sepolia
-          
-          const url = `https://${networkPrefix}etherscan.io/api?module=account&action=tokenbalance&contractaddress=${tokenAddress}&address=${accounts[0]}&tag=latest&apikey=${etherscanApiKey}`;
-          
-          const response = await fetch(url);
-          const data = await response.json();
-          
-          if (data.status === "1") {
-            userBalance = ethers.utils.formatEther(data.result);
-            console.log("User balance from Etherscan API:", userBalance);
-          }
-        } catch (etherscanError) {
-          console.error("Error getting balance from Etherscan:", etherscanError);
-        }
-      }
-    }
-    
-    return {
-      ...formattedParams,
-      userBalance
-    };
-  } catch (error) {
-    console.error("Error getting contract parameters:", error);
-    
-    // FALLBACK: Return hardcoded values if contract call fails
-    // These match the values from your update script
-    return {
-      votingDuration: 600,
-      quorum: "0.5",
-      timelockDelay: 600,
-      proposalCreationThreshold: "0.1",
-      proposalStake: "0.01",
-      defeatedRefundPercentage: 10,
-      canceledRefundPercentage: 75,
-      expiredRefundPercentage: 80,
-      userBalance: "1.75" // Use your known value as fallback
-    };
-  }
-}
+import { ChevronDown, ChevronUp, Copy } from 'lucide-react';
 
 const ProposalsTab = ({ 
   proposals, 
@@ -142,9 +12,7 @@ const ProposalsTab = ({
   queueProposal, 
   executeProposal, 
   claimRefund,
-  loading,
-  // This is now used properly - accept the user object with balance info
-  user = { balance: "0" }
+  loading
 }) => {
   const [proposalType, setProposalType] = useState('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -166,96 +34,6 @@ const ProposalsTab = ({
   });
   const [submitting, setSubmitting] = useState(false);
   const [transactionError, setTransactionError] = useState('');
-  const [loadingParams, setLoadingParams] = useState(false);
-  
-  // Add state for governance parameters and user balance
-  const [governanceMetrics, setGovernanceMetrics] = useState({
-    threshold: "0.1", // Use hardcoded fallback values from your script
-    stake: "0.01",
-    quorum: "0.5",
-    votingDuration: 600,
-    userBalance: user?.balance || "0",
-    isEligible: false
-  });
-
-  // Function to update the governance metrics
-  const fetchGovernanceParameters = async () => {
-    try {
-      setLoadingParams(true);
-      
-      console.log("Fetching governance parameters...");
-      
-      // Try to get parameters from contract
-      const params = await getContractParameters();
-      
-      if (params) {
-        // Use the user balance from props if it exists, otherwise use the one from contract
-        const userBalance = user?.balance ? user.balance.toString() : params.userBalance;
-        
-        // Calculate eligibility
-        const isEligible = parseFloat(userBalance) >= parseFloat(params.proposalCreationThreshold);
-        
-        console.log("Parameters fetched successfully:", {
-          threshold: params.proposalCreationThreshold,
-          stake: params.proposalStake,
-          quorum: params.quorum,
-          votingDuration: params.votingDuration,
-          userBalance,
-          isEligible
-        });
-        
-        // Update state
-        setGovernanceMetrics({
-          threshold: params.proposalCreationThreshold,
-          stake: params.proposalStake,
-          quorum: params.quorum,
-          votingDuration: params.votingDuration,
-          userBalance,
-          isEligible
-        });
-      } else {
-        // If contract call failed, use user balance from props
-        const userBalance = user?.balance ? user.balance.toString() : "0";
-        const isEligible = parseFloat(userBalance) >= 0.1; // 0.1 is the fallback threshold
-        
-        console.log("Using fallback values with user balance:", userBalance);
-        
-        setGovernanceMetrics(prev => ({
-          ...prev,
-          userBalance,
-          isEligible
-        }));
-      }
-    } catch (error) {
-      console.error("Error fetching governance parameters:", error);
-      
-      // Fall back to defaults but update user balance
-      const userBalance = user?.balance ? user.balance.toString() : "0";
-      const isEligible = parseFloat(userBalance) >= 0.1; // 0.1 is the fallback threshold
-      
-      setGovernanceMetrics(prev => ({
-        ...prev,
-        userBalance,
-        isEligible
-      }));
-    } finally {
-      setLoadingParams(false);
-    }
-  };
-
-  // Run once on component mount and when user balance changes
-  useEffect(() => {
-    fetchGovernanceParameters();
-  }, [user?.balance]);
-
-  // Update eligibility whenever userBalance or threshold changes
-  useEffect(() => {
-    const isEligible = parseFloat(governanceMetrics.userBalance) >= parseFloat(governanceMetrics.threshold);
-    setGovernanceMetrics(prev => ({
-      ...prev,
-      isEligible
-    }));
-  }, [governanceMetrics.userBalance, governanceMetrics.threshold]);
 
   const toggleProposalDetails = (proposalId) => {
     if (expandedProposalId === proposalId) {
@@ -293,47 +71,27 @@ const ProposalsTab = ({
     );
   };
 
-  // Enhanced validation function to check all requirements
-  const validateProposalSubmission = () => {
-  // Validate based on proposal type
-  if (!validateProposalInputs(newProposal)) {
-    setTransactionError('Please fill in all required fields for this proposal type.');
-    return false;
-  }
-    
-    // Validate token balance against threshold
-    if (parseFloat(governanceMetrics.userBalance) < parseFloat(governanceMetrics.threshold)) {
-      setTransactionError(
-        `Insufficient balance to create proposal. You need at least ${governanceMetrics.threshold} JUST tokens, but you have ${governanceMetrics.userBalance}.`
-      );
-      return false;
-    }
-    
-    return true;
-  };
-
   const handleSubmitProposal = async (e) => {
     e.preventDefault();
-    
-    // Clear any existing error
-    setTransactionError('');
-    
-    // Validate proposal first
-    if (!validateProposalSubmission()) {
-      return;
-    }
-    
     setSubmitting(true);
+    setTransactionError('');
     
     try {
       const description = `${newProposal.title}\n\n${newProposal.description}`;
       
       // Convert values to proper format
-      const amount = newProposal.amount ? newProposal.amount.toString() : "0";
-      const newThreshold = newProposal.newThreshold ? newProposal.newThreshold.toString() : "0";
-      const newQuorum = newProposal.newQuorum ? newProposal.newQuorum.toString() : "0";
+      const amount = newProposal.amount ? ethers.utils.parseEther(newProposal.amount.toString()) : 0;
+      const newThreshold = newProposal.newThreshold ? ethers.utils.parseEther(newProposal.newThreshold.toString()) : 0;
+      const newQuorum = newProposal.newQuorum ? ethers.utils.parseEther(newProposal.newQuorum.toString()) : 0;
       const newVotingDuration = newProposal.newVotingDuration ? parseInt(newProposal.newVotingDuration) : 0;
       const newTimelockDelay = newProposal.newTimelockDelay ? parseInt(newProposal.newTimelockDelay) : 0;
+      
+      // Validate inputs based on proposal type
+      if (!validateProposalInputs(newProposal)) {
+        setTransactionError('Please fill in all required fields for this proposal type.');
+        setSubmitting(false);
+        return;
+      }
       
       console.log('Submitting proposal:', {
         description,
@@ -389,6 +147,7 @@ const ProposalsTab = ({
 
   // Validate proposal inputs based on type
   const validateProposalInputs = (proposal) => {
+    
     switch (parseInt(proposal.type)) {
       case PROPOSAL_TYPES.GENERAL:
         return proposal.target && proposal.callData;
@@ -455,52 +214,6 @@ const ProposalsTab = ({
         >
           Create Proposal
         </button>
-      </div>
-      
-      {/* Governance Parameters Panel */}
-      <div className="bg-white p-4 rounded-lg shadow mb-6">
-        <div className="flex justify-between items-center mb-2">
-          <h3 className="text-lg font-medium text-gray-900">Governance Parameters</h3>
-          <button 
-            onClick={fetchGovernanceParameters} 
-            className="text-indigo-600 hover:text-indigo-800 flex items-center text-sm"
-            disabled={loadingParams}
-          >
-            <RefreshCw className={`w-4 h-4 mr-1 ${loadingParams ? 'animate-spin' : ''}`} />
-            {loadingParams ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-        
-        {loadingParams ? (
-          <div className="py-2 text-center">
-            <Loader size="small" text="Loading parameters..." />
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div>
-              <p className="text-gray-500">Proposal Threshold</p>
-              <p className="font-bold">{governanceMetrics.threshold} JUST</p>
-            </div>
-            <div>
-              <p className="text-gray-500">Proposal Stake</p>
-              <p className="font-bold">{governanceMetrics.stake} JUST</p>
-            </div>
-            <div>
-              <p className="text-gray-500">Your Balance</p>
-              <p className="font-bold">{governanceMetrics.userBalance} JUST</p>
-            </div>
-            <div>
-              <p className="text-gray-500">Status</p>
-              <p className={governanceMetrics.isEligible 
-                ? "font-bold text-green-600" 
-                : "font-bold text-red-600"}>
-                {governanceMetrics.isEligible 
-                  ? "Eligible to Create Proposals" 
-                  : "Need More Tokens"}
-              </p>
-            </div>
-          </div>
-        )}
       </div>
       
       {/* Filter options */}
@@ -667,39 +380,10 @@ const ProposalsTab = ({
           <div className="bg-white rounded-lg max-w-2xl w-full p-6 max-h-screen overflow-y-auto">
             <h2 className="text-xl font-semibold mb-4">Create New Proposal</h2>
             
-            {/* Enhanced Error Display */}
             {transactionError && (
               <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                <div className="flex items-start">
-                  <AlertTriangle className="w-5 h-5 mr-2 mt-0.5" />
-                  <div>
-                    <p className="font-bold">Error</p>
-                    <p>{transactionError}</p>
-                    
-                    {/* Governance Parameters Info */}
-                    <div className="mt-2 text-sm">
-                      <p>Governance Parameters:</p>
-                      <ul className="list-disc pl-5 mt-1">
-                        <li>Required tokens: {governanceMetrics.threshold} JUST</li>
-                        <li>Your balance: {governanceMetrics.userBalance} JUST</li>
-                        <li>Proposal stake: {governanceMetrics.stake} JUST</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Eligibility Warning - Show if user doesn't have enough tokens */}
-            {!governanceMetrics.isEligible && (
-              <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
-                <div className="flex items-center">
-                  <AlertTriangle className="w-5 h-5 mr-2" />
-                  <div>
-                    <p className="font-bold">You don't have enough tokens to create a proposal</p>
-                    <p>Required: {governanceMetrics.threshold} JUST | Your Balance: {governanceMetrics.userBalance} JUST</p>
-                  </div>
-                </div>
+                <p className="font-bold">Error</p>
+                <p>{transactionError}</p>
               </div>
             )}
             
@@ -950,7 +634,7 @@ const ProposalsTab = ({
                       value={newProposal.newThreshold}
                       onChange={(e) => setNewProposal({...newProposal, newThreshold: e.target.value})}
                     />
-                    <p className="text-xs text-gray-500 mt-1">Minimum tokens required to create a proposal (currently {governanceMetrics.threshold} JUST)</p>
+                    <p className="text-xs text-gray-500 mt-1">Minimum tokens required to create a proposal</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">New Quorum (JUST tokens, optional)</label>
@@ -962,7 +646,7 @@ const ProposalsTab = ({
                       value={newProposal.newQuorum}
                       onChange={(e) => setNewProposal({...newProposal, newQuorum: e.target.value})}
                     />
-                    <p className="text-xs text-gray-500 mt-1">Minimum votes required for a proposal to pass (currently {governanceMetrics.quorum} JUST)</p>
+                    <p className="text-xs text-gray-500 mt-1">Minimum votes required for a proposal to pass</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">New Voting Duration (seconds, optional)</label>
@@ -973,7 +657,7 @@ const ProposalsTab = ({
                       value={newProposal.newVotingDuration}
                       onChange={(e) => setNewProposal({...newProposal, newVotingDuration: e.target.value})}
                     />
-                    <p className="text-xs text-gray-500 mt-1">Duration of the voting period in seconds (currently {governanceMetrics.votingDuration} seconds)</p>
+                    <p className="text-xs text-gray-500 mt-1">Duration of the voting period in seconds</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">New Timelock Delay (seconds, optional)</label>
@@ -1001,7 +685,7 @@ const ProposalsTab = ({
                 <button 
                   type="submit"
                   className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-indigo-400"
-                  disabled={submitting || !governanceMetrics.isEligible}
+                  disabled={submitting}
                 >
                   {submitting ? 'Creating Proposal...' : 'Create Proposal'}
                 </button>
