@@ -1,14 +1,33 @@
-import React from 'react';
+// src/App.js
+import React, { useState, useEffect } from 'react';
 import { useWeb3 } from './contexts/Web3Context';
 import { useAuth } from './contexts/AuthContext';
+import { BlockchainDataProvider } from './contexts/BlockchainDataContext';
 import JustDAODashboard from './components/JustDAO.jsx'; // Make sure to include the .jsx extension
 import Loader from './components/Loader';
 
 function App() {
-  const { isConnected, connectWallet, contractsReady } = useWeb3();
+  const { isConnected, connectWallet, contractsReady, contracts } = useWeb3();
   const { loading: authLoading } = useAuth();
+  const [blockchainProviderReady, setBlockchainProviderReady] = useState(false);
+  
+  // Ensure we have actual contract objects before proceeding
+  useEffect(() => {
+    if (contractsReady && contracts) {
+      console.log("Contracts status:", {
+        contractsReady,
+        contractKeys: Object.keys(contracts || {})
+      });
+      
+      // Consider it ready even if contracts aren't fully available
+      // Our BlockchainDataService will provide mock data in that case
+      setBlockchainProviderReady(true);
+    } else {
+      setBlockchainProviderReady(false);
+    }
+  }, [contracts, contractsReady]);
 
-  if (isConnected && (!contractsReady || authLoading)) {
+  if (isConnected && (!blockchainProviderReady || authLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Loader size="large" text="Loading DAO data..." />
@@ -34,7 +53,9 @@ function App() {
           </div>
         </div>
       ) : (
-        <JustDAODashboard />
+        <BlockchainDataProvider>
+          <JustDAODashboard key={`dashboard-${blockchainProviderReady}`} />
+        </BlockchainDataProvider>
       )}
     </div>
   );
